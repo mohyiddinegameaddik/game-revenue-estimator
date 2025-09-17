@@ -1,0 +1,98 @@
+.game-card {
+  display: flex;
+  align-items: center;
+  background-color: #2a2a2a;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 8px;
+  transition: background-color 0.2s ease;
+  width: 100%;
+  max-width: 400px;
+}
+
+.game-card:hover {
+  background-color: #333;
+}
+
+.game-cover {
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+.game-cover img {
+  width: 40px;
+  height: 55px;
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.placeholder-image {
+  width: 40px;
+  height: 55px;
+  background-color: #333;
+  border: 1px solid #555;
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  font-size: 10px;
+}
+
+.placeholder-icon {
+  font-size: 16px;
+  margin-bottom: 2px;
+}
+
+.placeholder-text {
+  font-size: 8px;
+  text-align: center;
+  line-height: 1;
+}
+
+.game-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.game-title {
+  margin: 0 0 4px 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.game-developer {
+  font-size: 12px;
+  color: #888;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.game-actions {
+  margin-left: 8px;
+  flex-shrink: 0;
+}
+
+.connect-button {
+  background-color: transparent;
+  border: 1px solid #ffffff;
+  color: #ffffff;
+  padding: 8px 16px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s ease;
+}
+
+.connect-button:hover {
+  background-color: #ffffff;
+  color: #1a1a1a;
+}
