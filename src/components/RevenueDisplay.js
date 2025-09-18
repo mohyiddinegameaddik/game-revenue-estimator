@@ -32,6 +32,12 @@ const RevenueDisplay = ({ game, revenueData }) => {
             <span className="stat-label">Game ID</span>
             <span className="stat-value">{game.id}</span>
           </div>
+          {revenueData.steamId && (
+            <div className="stat-item">
+              <span className="stat-label">Steam ID</span>
+              <span className="stat-value">{revenueData.steamId}</span>
+            </div>
+          )}
           <div className="stat-item">
             <span className="stat-label">Estimated Monthly Revenue</span>
             <span className="stat-value revenue">{formatCurrency(revenueData.estimatedMonthlyRevenue || 0)}</span>

@@ -70,6 +70,29 @@ const GameList = () => {
       // Calculate estimated monthly revenue
       const estimatedMonthlyRevenue = gameData.avg_monthly_active_user * conversionRate * 15; // ARPPU = $15
       
+      // Fetch Steam Charts data if steam_id is available
+      let steamChartsData = null;
+      if (gameData.steam_id) {
+        try {
+          console.log('Fetching Steam Charts for Steam ID:', gameData.steam_id);
+          // Use CORS proxy to bypass CORS restrictions
+          const steamResponse = await fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(`https://steamcharts.com/app/${gameData.steam_id}/chart-data.json`)}`);
+          console.log('Steam Charts response status:', steamResponse.status);
+          if (steamResponse.ok) {
+            const steamData = await steamResponse.json();
+            console.log('Raw Steam Charts data:', steamData);
+            steamChartsData = processSteamChartsData(steamData);
+            console.log('Processed Steam Charts data:', steamChartsData);
+          } else {
+            console.error('Steam Charts API error:', steamResponse.status, steamResponse.statusText);
+          }
+        } catch (steamError) {
+          console.error('Error fetching Steam Charts data:', steamError);
+        }
+      } else {
+        console.log('No Steam ID found for game:', gameData.title);
+      }
+      
       // Generate revenue data based on calculated values
       const revenueData = {
         totalRevenue: gameData.revenue || 0,
@@ -79,9 +102,13 @@ const GameList = () => {
         avgMonthlyActiveUser: gameData.avg_monthly_active_user || 0,
         monthlyRevenue: generateMonthlyRevenueData(estimatedMonthlyRevenue),
         unitsSold: generateUnitsSoldData(gameData.units_sold || 0),
-        monthlyLabels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+        monthlyLabels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
+        steamChartsData: steamChartsData,
+        steamId: gameData.steam_id
       };
       
+      console.log('Revenue data generated:', revenueData);
+      console.log('Steam Charts data:', steamChartsData);
       setRevenueData(revenueData);
     } catch (error) {
       console.error('Error fetching revenue data:', error);
@@ -185,6 +212,51 @@ const GameList = () => {
       months.push((totalUnitsSold / 12) * variation);
     }
     return months;
+  };
+
+  const processSteamChartsData = (steamData) => {
+    if (!steamData || !Array.isArray(steamData)) {
+      return null;
+    }
+
+    // Process the Steam Charts data
+    // Each entry is [timestamp, playerCount]
+    const processedData = steamData.map(([timestamp, playerCount]) => ({
+      date: new Date(timestamp),
+      playerCount: playerCount
+    }));
+
+    // Sort by date to ensure chronological order
+    processedData.sort((a, b) => a.date - b.date);
+
+    // Filter to only include first day of each month
+    const monthlyData = [];
+    const seenMonths = new Set();
+    
+    processedData.forEach(item => {
+      const date = item.date;
+      const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
+      
+      // Only include if this is the first occurrence of this month
+      if (!seenMonths.has(monthKey)) {
+        seenMonths.add(monthKey);
+        monthlyData.push(item);
+      }
+    });
+
+    // Extract labels and data for the chart
+    const labels = monthlyData.map(item => {
+      const date = item.date;
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+    });
+
+    const playerCounts = monthlyData.map(item => item.playerCount);
+
+    return {
+      labels: labels,
+      playerCounts: playerCounts,
+      rawData: monthlyData
+    };
   };
 
   return (
