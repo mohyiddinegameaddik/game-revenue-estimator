@@ -39,8 +39,10 @@ const RevenueChart = ({ game, revenueData }) => {
     console.log('Adding Steam Charts data:', revenueData.steamChartsData.playerCounts.length, 'data points');
     
     // Add estimated revenue line based on actual player counts (show first/in front)
+    // Using optimized F2P formula: Revenue = PlayerCount × ConversionRate × ARPPU
     const estimatedRevenueOverTime = revenueData.steamChartsData.playerCounts.map(playerCount => {
-      return playerCount * revenueData.conversionRate * 15; // ARPPU = $15
+      const payingUsers = playerCount * revenueData.conversionRate;
+      return payingUsers * revenueData.arppu;
     });
 
     datasets.push({

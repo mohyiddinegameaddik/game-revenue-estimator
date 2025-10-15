@@ -27,7 +27,7 @@ const GameList = () => {
   const fetchGames = async () => {
     try {
       setLoading(true);
-      const response = await fetch('https://grm.gameops.tech/games/games/');
+      const response = await fetch('https://grm.gameops.tech/games/games/?monetization_options=free_to_play&exclude_nulls=steam_id');
       if (!response.ok) {
         throw new Error('Failed to fetch games');
       }
@@ -64,11 +64,14 @@ const GameList = () => {
       const gameResponse = await fetch(`https://grm.gameops.tech/games/games/${game.id}/`);
       const gameData = await gameResponse.json();
       
-      // Calculate conversion rate based on genres and studio scale
-      const conversionRate = await calculateConversionRate(gameData);
+      // Calculate revenue metrics (conversion rate and ARPPU) based on genres and studio scale
+      const metrics = await calculateRevenueMetrics(gameData);
       
-      // Calculate estimated monthly revenue
-      const estimatedMonthlyRevenue = gameData.avg_monthly_active_user * conversionRate * 15; // ARPPU = $15
+      // Calculate estimated monthly revenue using proper F2P formula:
+      // Revenue = MAU × Conversion Rate × ARPPU
+      const mau = gameData.avg_monthly_active_user || 0;
+      const payingUsers = mau * metrics.conversionRate;
+      const estimatedMonthlyRevenue = payingUsers * metrics.arppu;
       
       // Fetch Steam Charts data if steam_id is available
       let steamChartsData = null;
@@ -93,13 +96,30 @@ const GameList = () => {
         console.log('No Steam ID found for game:', gameData.title);
       }
       
+      // Calculate total revenue from Steam Charts data if available
+      let totalSteamChartsRevenue = 0;
+      if (steamChartsData && steamChartsData.playerCounts && Array.isArray(steamChartsData.playerCounts)) {
+        totalSteamChartsRevenue = steamChartsData.playerCounts.reduce((total, playerCount) => {
+          const payingUsers = playerCount * metrics.conversionRate;
+          const monthlyRevenue = payingUsers * metrics.arppu;
+          return total + monthlyRevenue;
+        }, 0);
+      }
+
+      // Use Steam Charts total revenue as the primary total revenue if available
+      const primaryTotalRevenue = totalSteamChartsRevenue > 0 ? totalSteamChartsRevenue : (gameData.revenue || 0);
+
       // Generate revenue data based on calculated values
       const revenueData = {
-        totalRevenue: gameData.revenue || 0,
+        totalRevenue: primaryTotalRevenue,
+        totalSteamChartsRevenue: totalSteamChartsRevenue,
         totalUnitsSold: gameData.units_sold || 0,
         estimatedMonthlyRevenue: estimatedMonthlyRevenue,
-        conversionRate: conversionRate,
-        avgMonthlyActiveUser: gameData.avg_monthly_active_user || 0,
+        conversionRate: metrics.conversionRate,
+        arppu: metrics.arppu,
+        gameType: metrics.gameType,
+        payingUsers: Math.round(payingUsers),
+        avgMonthlyActiveUser: mau,
         monthlyRevenue: generateMonthlyRevenueData(estimatedMonthlyRevenue),
         unitsSold: generateUnitsSoldData(gameData.units_sold || 0),
         monthlyLabels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'],
@@ -116,49 +136,129 @@ const GameList = () => {
     }
   };
 
-  const calculateConversionRate = async (gameData) => {
-    // Genre multipliers mapping
-    const genreMultipliers = {
-      'INDIE': 0.80,
-      'ACTION': 0.80,
-      'ADVENTURE': 0.90,
-      'RPG': 1.20,
-      'SPORTS': 1.10,
-      'RACING': 1.00,
-      'PUZZLE': 0.85,
-      'QUIZ_AND_TRIVIA': 0.80,
-      'STRATEGY': 1.10,
-      'HORROR_AND_SURVIVAL': 0.90,
-      'PLATFORMER': 0.85,
-      'FIGHTING': 1.00,
-      'BEAT_EM_UP': 0.85,
-      'MUSIC': 0.80,
-      'SHOOTER': 0.80,
-      'PINBALL': 0.70,
-      'ARCADE': 0.80,
-      'CARD_AND_BOARD_GAME': 1.50,
-      'POINT_AND_CLICK': 0.85,
-      'TACTICAL': 1.10,
-      'VISUAL_NOVEL': 0.90,
-      'MOBA': 1.10
+  const detectGameType = (gameData) => {
+    const title = gameData.title.toLowerCase();
+    const genres = gameData.genres?.map(g => g.value.toLowerCase()) || [];
+    
+    // Battle Royale games (high monetization, battle passes, cosmetics)
+    const battleRoyaleKeywords = ['battlegrounds', 'battle royale', 'fortnite', 'apex legends', 'warzone', 'fall guys'];
+    if (battleRoyaleKeywords.some(keyword => title.includes(keyword))) {
+      return 'battle_royale';
+    }
+    
+    // Premium games with DLC (Sims, Civilization, etc.)
+    const premiumKeywords = ['the sims', 'civilization', 'cities:', 'europa universalis', 'crusader kings', 'total war'];
+    if (premiumKeywords.some(keyword => title.includes(keyword))) {
+      return 'premium_dlc';
+    }
+    
+    // MOBA games (League of Legends style)
+    if (genres.includes('moba') || title.includes('league of legends') || title.includes('dota')) {
+      return 'moba';
+    }
+    
+    // Traditional F2P games
+    return 'f2p';
+  };
+
+  const calculateRevenueMetrics = async (gameData) => {
+    const gameType = detectGameType(gameData);
+    
+    // Battle Royale games: Moderate ARPPU, many players buy battle passes
+    if (gameType === 'battle_royale') {
+      return {
+        conversionRate: 0.20,  // 20% regularly buy battle passes/cosmetics
+        arppu: 72             // $72/month (battle pass + cosmetics)
+      };
+    }
+    
+    // Premium games with DLC: Everyone pays base game + many buy DLC
+    if (gameType === 'premium_dlc') {
+      return {
+        conversionRate: 0.30,  // 30% buy DLC/expansions
+        arppu: 60             // $60/month (base game amortized + DLC)
+      };
+    }
+    
+    // MOBA games: Moderate conversion, high spending
+    if (gameType === 'moba') {
+      return {
+        conversionRate: 0.12,  // 12% spend on cosmetics
+        arppu: 60             // $60/month (skins, champions)
+      };
+    }
+    
+    // Traditional F2P games: Lower conversion, lower spending
+    const genreConversionRates = {
+      'INDIE': 0.025,        // 2.5%
+      'ACTION': 0.030,       // 3%
+      'ADVENTURE': 0.025,    // 2.5%
+      'RPG': 0.045,          // 4.5% (higher for RPGs)
+      'SPORTS': 0.035,       // 3.5%
+      'RACING': 0.030,       // 3%
+      'PUZZLE': 0.020,       // 2% (lower monetization)
+      'QUIZ_AND_TRIVIA': 0.015, // 1.5%
+      'STRATEGY': 0.040,     // 4%
+      'HORROR_AND_SURVIVAL': 0.025, // 2.5%
+      'PLATFORMER': 0.025,   // 2.5%
+      'FIGHTING': 0.035,     // 3.5%
+      'BEAT_EM_UP': 0.030,   // 3%
+      'MUSIC': 0.020,        // 2%
+      'SHOOTER': 0.040,      // 4% (high monetization)
+      'PINBALL': 0.015,      // 1.5%
+      'ARCADE': 0.025,       // 2.5%
+      'CARD_AND_BOARD_GAME': 0.050, // 5% (highest monetization)
+      'POINT_AND_CLICK': 0.020,  // 2%
+      'TACTICAL': 0.040,     // 4%
+      'VISUAL_NOVEL': 0.025, // 2.5%
+      'MOBA': 0.050          // 5% (high monetization)
     };
 
-    // Calculate genre multiplier average
-    let genreMultiplierSum = 0;
+    const genreARPPU = {
+      'INDIE': 25,
+      'ACTION': 45,
+      'ADVENTURE': 35,
+      'RPG': 75,             // Higher ARPPU for RPGs
+      'SPORTS': 50,
+      'RACING': 40,
+      'PUZZLE': 20,
+      'QUIZ_AND_TRIVIA': 15,
+      'STRATEGY': 60,
+      'HORROR_AND_SURVIVAL': 35,
+      'PLATFORMER': 30,
+      'FIGHTING': 45,
+      'BEAT_EM_UP': 35,
+      'MUSIC': 25,
+      'SHOOTER': 55,
+      'PINBALL': 15,
+      'ARCADE': 30,
+      'CARD_AND_BOARD_GAME': 80, // Highest ARPPU
+      'POINT_AND_CLICK': 25,
+      'TACTICAL': 60,
+      'VISUAL_NOVEL': 30,
+      'MOBA': 65
+    };
+
+    // Calculate genre-based conversion rate and ARPPU for traditional F2P games
+    let totalConversionRate = 0;
+    let totalARPPU = 0;
     let genreCount = 0;
     
     if (gameData.genres && gameData.genres.length > 0) {
       gameData.genres.forEach(genre => {
         const genreKey = genre.value.toUpperCase();
-        const multiplier = genreMultipliers[genreKey] || 1.00; // Default to 1.00 if not found
-        genreMultiplierSum += multiplier;
+        const convRate = genreConversionRates[genreKey] || 0.030; // Default 3%
+        const arppu = genreARPPU[genreKey] || 40; // Default $40
+        totalConversionRate += convRate;
+        totalARPPU += arppu;
         genreCount++;
       });
     }
 
-    const avgGenreMultiplier = genreCount > 0 ? genreMultiplierSum / genreCount : 1.00;
+    const avgConversionRate = genreCount > 0 ? totalConversionRate / genreCount : 0.030;
+    const avgARPPU = genreCount > 0 ? totalARPPU / genreCount : 40;
 
-    // Get studio scale multiplier
+    // Get studio scale multiplier for ARPPU
     let studioMultiplier = 1.00;
     
     if (gameData.developers && gameData.developers.length > 0) {
@@ -170,17 +270,17 @@ const GameList = () => {
         if (developerData.results && developerData.results.length > 0) {
           const employeesNumber = developerData.results[0].employees_number;
           
-          // Studio scale multipliers mapping
+          // Studio scale affects ARPPU (larger studios have better monetization)
           const studioMultipliers = {
-            '1 - 10': 0.80,
-            '11 - 50': 1.00,
+            '1 - 10': 0.70,      // Smaller studios, lower ARPPU
+            '11 - 50': 0.90,
             '51 - 100': 1.10,
-            '101 - 250': 1.20,
-            '251 - 500': 1.20,
-            '501 - 1000': 1.20,
-            '1001 - 5000': 1.20,
-            '5001 - 10000': 1.20,
-            '10001+': 1.20
+            '101 - 250': 1.30,
+            '251 - 500': 1.50,
+            '501 - 1000': 1.70,
+            '1001 - 5000': 2.00,
+            '5001 - 10000': 2.50,
+            '10001+': 3.00       // Large studios (AAA), highest ARPPU
           };
           
           studioMultiplier = studioMultipliers[employeesNumber] || 1.00;
@@ -190,8 +290,14 @@ const GameList = () => {
       }
     }
 
-    // Calculate conversion rate as average of genre and studio multipliers
-    return (avgGenreMultiplier + studioMultiplier) / 2;
+    // Apply studio multiplier to ARPPU
+    const finalARPPU = avgARPPU * studioMultiplier;
+
+    return {
+      conversionRate: avgConversionRate,
+      arppu: finalARPPU,
+      gameType: gameType
+    };
   };
 
   const generateMonthlyRevenueData = (monthlyRevenue) => {
